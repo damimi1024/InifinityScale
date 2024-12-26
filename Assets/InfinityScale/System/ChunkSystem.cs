@@ -206,6 +206,7 @@ namespace SURender.InfinityScale
         private IEnumerator LoadChunkContent(Chunk chunk)
         {
             bool hasLoadedAnyBuilding = false;
+            int pendingBuildings = 0;  // 跟踪待处理的建筑数量
             
             // 先检查是否有之前保存的建筑数据
             var savedBuildings = BuildingSystem.Instance.GetPendingBuildings(chunk.Position);
@@ -216,6 +217,7 @@ namespace SURender.InfinityScale
                 {
                     if (buildingData != null)
                     {
+                        pendingBuildings++;  // 增加待处理数量
                         BuildingSystem.Instance.CreateBuilding(
                             buildingData,
                             buildingData.position,
@@ -228,16 +230,23 @@ namespace SURender.InfinityScale
                                     hasLoadedAnyBuilding = true;
                                     Debug.Log($"Restored building {building.BuildingId} to chunk {chunk.Position}");
                                 }
+                                pendingBuildings--;  // 完成一个建筑的处理
                             });
                         yield return null;
                     }
+                }
+                
+                // 等待所有建筑创建完成
+                while (pendingBuildings > 0)
+                {
+                    yield return null;
                 }
             }
             
             // 如果没有加载任何保存的建筑，则尝试加载新的建筑
             if (!hasLoadedAnyBuilding)
             {
-                Debug.Log($"No saved buildings found for chunk {chunk.Position}, loading new buildings");
+                Debug.Log($"No saved buildings loaded for chunk {chunk.Position}, loading new buildings");
                 yield return StartCoroutine(LoadChunkBuildings(chunk));
             }
             
@@ -268,6 +277,7 @@ namespace SURender.InfinityScale
             {
                 if (buildingData != null)
                 {
+                    Debug.LogWarning("create building2");
                     BuildingSystem.Instance.CreateBuilding(
                         buildingData,           // 建筑数据
                         buildingData.position,  // 位置
@@ -299,7 +309,7 @@ namespace SURender.InfinityScale
                         terrainPrefab,
                         chunkWorldPos,
                         Quaternion.identity,
-                        chunk.Transform  // 设置地形的父物体
+                        chunk.Transform  // 设置���形的父物体
                     );
                 }
             });

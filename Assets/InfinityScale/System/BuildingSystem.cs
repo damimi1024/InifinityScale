@@ -26,10 +26,13 @@ namespace SURender.InfinityScale
         #region 私有字段
         private Dictionary<BuildingType, List<BuildingBase>> activeBuildings;
         private Dictionary<BuildingType, MaterialPropertyBlock> propertyBlocks;
+        private Dictionary<string, BuildingBase> buildingIdMap;  // 通过ID快速查找建筑
+        private Dictionary<Vector2Int, HashSet<BuildingBase>> chunkBuildingMap;  // 通过区块位置快速查找建筑
         private ResourceSystem resourceSystem;
         
         // 待处理的建筑
-        private Dictionary<Vector2Int, List<BuildingData>> pendingBuildings = new Dictionary<Vector2Int, List<BuildingData>>();
+        private Dictionary<Vector2Int, HashSet<BuildingData>> pendingBuildings = new Dictionary<Vector2Int, HashSet<BuildingData>>();
+        private Transform fallbackContainer;
         #endregion
 
         #region 初始化
@@ -50,6 +53,8 @@ namespace SURender.InfinityScale
         {
             activeBuildings = new Dictionary<BuildingType, List<BuildingBase>>();
             propertyBlocks = new Dictionary<BuildingType, MaterialPropertyBlock>();
+            buildingIdMap = new Dictionary<string, BuildingBase>();
+            chunkBuildingMap = new Dictionary<Vector2Int, HashSet<BuildingBase>>();
             resourceSystem = ResourceSystem.Instance;
 
             foreach (BuildingType type in System.Enum.GetValues(typeof(BuildingType)))
@@ -71,27 +76,70 @@ namespace SURender.InfinityScale
         #region 建筑管理
         public void CreateBuilding(BuildingData data, Vector3 position, Transform parent = null, System.Action<BuildingBase> onComplete = null)
         {
+            if (data == null)
+            {
+                Debug.LogError("BuildingData is null!");
+                onComplete?.Invoke(null);
+                return;
+            }
+
+            // O(1) 检查建筑是否已存在
+            if (buildingIdMap.ContainsKey(data.buildingId))
+            {
+                Debug.LogWarning($"Building {data.buildingId} already exists, skipping creation");
+                onComplete?.Invoke(null);
+                return;
+            }
+
             string fullPath = $"Buildings/{data.prefabPath}";
             ResourceSystem.Instance.LoadAssetAsync<GameObject>(fullPath, (prefab) =>
             {
                 if (prefab != null)
                 {
-                    GameObject buildingObj = Instantiate(prefab, position, Quaternion.identity);
-                    if (parent != null)
+                    GameObject buildingObj = Instantiate(prefab, position, data.rotation);
+                    buildingObj.transform.localScale = data.scale;
+                    
+                    // 如果父物体为空，使用默认容器
+                    if (parent == null)
                     {
-                        buildingObj.transform.SetParent(parent);
+                        Vector2Int chunkPos = ChunkSystem.Instance.WorldToChunkPosition(position);
+                        var chunk = ChunkSystem.Instance.GetChunk(chunkPos);
+                        if (chunk != null)
+                        {
+                            parent = chunk.Transform;
+                        }
+                        
+                        if (parent == null)
+                        {
+                            Debug.LogWarning($"No valid parent found for building at position {position}, using fallback container");
+                            if (fallbackContainer == null)
+                            {
+                                fallbackContainer = new GameObject("FallbackBuildingContainer").transform;
+                                fallbackContainer.SetParent(transform);
+                            }
+                            parent = fallbackContainer;
+                        }
                     }
-                    else
-                    {
-                        Debug.LogWarning(parent +"  is null");
-                    }
+                    
+                    buildingObj.transform.SetParent(parent);
                     
                     BuildingBase building = buildingObj.GetComponent<BuildingBase>();
                     if (building != null)
                     {
                         building.Initialize(data);
                         RegisterBuilding(building);
+                        
+                        // 根据当前状态设置初始可见性
+                        var currentState = InfinityScaleManager.Instance.GetCurrentState();
+                        building.UpdateState(currentState);
+                        
                         onComplete?.Invoke(building);
+                    }
+                    else
+                    {
+                        Debug.LogError($"Building component not found on prefab: {fullPath}");
+                        Destroy(buildingObj);
+                        onComplete?.Invoke(null);
                     }
                 }
                 else
@@ -104,19 +152,49 @@ namespace SURender.InfinityScale
 
         private void RegisterBuilding(BuildingBase building)
         {
+            if (building == null) return;
+
+            // 记录建筑ID映射
+            buildingIdMap[building.BuildingId] = building;
+            
+            // 记录区块映射
+            Vector2Int chunkPos = ChunkSystem.Instance.WorldToChunkPosition(building.transform.position);
+            if (!chunkBuildingMap.ContainsKey(chunkPos))
+            {
+                chunkBuildingMap[chunkPos] = new HashSet<BuildingBase>();
+            }
+            chunkBuildingMap[chunkPos].Add(building);
+            
+            // 记��类型映射
             if (!activeBuildings.ContainsKey(building.BuildingType))
             {
                 activeBuildings[building.BuildingType] = new List<BuildingBase>();
             }
-            
             activeBuildings[building.BuildingType].Add(building);
         }
 
         public void UnregisterBuilding(BuildingBase building)
         {
-            if (building != null && activeBuildings.ContainsKey(building.BuildingType))
+            if (building == null) return;
+
+            // 移除ID映射
+            buildingIdMap.Remove(building.BuildingId);
+            
+            // 移除区块映射
+            Vector2Int chunkPos = ChunkSystem.Instance.WorldToChunkPosition(building.transform.position);
+            if (chunkBuildingMap.TryGetValue(chunkPos, out var buildings))
             {
-                activeBuildings[building.BuildingType].Remove(building);
+                buildings.Remove(building);
+                if (buildings.Count == 0)
+                {
+                    chunkBuildingMap.Remove(chunkPos);
+                }
+            }
+            
+            // 移除类型映射
+            if (activeBuildings.TryGetValue(building.BuildingType, out var buildingList))
+            {
+                buildingList.Remove(building);
             }
         }
 
@@ -126,7 +204,16 @@ namespace SURender.InfinityScale
             {
                 foreach (var building in buildings)
                 {
-                    building.UpdateVisibility(alpha);
+                    if (building != null)
+                    {
+                        building.UpdateVisibility(alpha);
+                        
+                        // 如果是实例化渲染的建筑，需要更新propertyBlock
+                        if (building.UseInstancing && propertyBlocks.TryGetValue(type, out var propertyBlock))
+                        {
+                            propertyBlock.SetFloat("_Alpha", alpha);
+                        }
+                    }
                 }
             }
         }
@@ -152,27 +239,33 @@ namespace SURender.InfinityScale
         #region 实例化渲染
         private void UpdateInstancedRendering(BuildingType type, Camera camera)
         {
-            if (!activeBuildings.ContainsKey(type))
+            if (!activeBuildings.TryGetValue(type, out var buildings) || buildings.Count == 0)
                 return;
 
-            var buildings = activeBuildings[type];
+            // 分离使用实例化和非实例化的建筑
+            var instancedBuildings = buildings.Where(b => b != null && b.UseInstancing && b.IsVisible).ToList();
+            
+            if (instancedBuildings.Count == 0)
+                return;
+
             var propertyBlock = propertyBlocks[type];
 
             // 更新实例化渲染数据
-            Matrix4x4[] matrices = new Matrix4x4[Mathf.Min(buildings.Count, config.maxInstancedBuildings)];
+            Matrix4x4[] matrices = new Matrix4x4[Mathf.Min(instancedBuildings.Count, config.maxInstancedBuildings)];
             for (int i = 0; i < matrices.Length; i++)
             {
-                matrices[i] = buildings[i].transform.localToWorldMatrix;
+                matrices[i] = instancedBuildings[i].transform.localToWorldMatrix;
             }
 
             // 执行实例化渲染
-            if (buildings.Count > 0 && buildings[0] != null)
+            if (instancedBuildings[0] != null)
             {
-                var renderer = buildings[0].GetComponent<MeshRenderer>();
-                if (renderer != null)
+                var renderer = instancedBuildings[0].GetComponent<MeshRenderer>();
+                var meshFilter = instancedBuildings[0].GetComponent<MeshFilter>();
+                if (renderer != null && meshFilter != null)
                 {
                     Graphics.DrawMeshInstanced(
-                        buildings[0].GetComponent<MeshFilter>().sharedMesh,
+                        meshFilter.sharedMesh,
                         0,
                         renderer.sharedMaterial,
                         matrices,
@@ -190,100 +283,76 @@ namespace SURender.InfinityScale
             
             if (!pendingBuildings.ContainsKey(chunkPos))
             {
-                pendingBuildings[chunkPos] = new List<BuildingData>();
+                pendingBuildings[chunkPos] = new HashSet<BuildingData>();
             }
             
-            // 检查是否已经存在相同的建筑数据
-            bool exists = pendingBuildings[chunkPos].Any(b => 
-                b.buildingId == buildingData.buildingId && 
-                Vector3.Distance(b.position, buildingData.position) < 0.1f);
-                
-            if (!exists)
-            {
-                pendingBuildings[chunkPos].Add(buildingData);
-                // Debug.Log($"Added pending building {buildingData.buildingId} to chunk {chunkPos}, total pending: {pendingBuildings[chunkPos].Count}");
-            }
+            pendingBuildings[chunkPos].Add(buildingData);
         }
 
         public List<BuildingData> GetPendingBuildings(Vector2Int chunkPos)
         {
             if (pendingBuildings.TryGetValue(chunkPos, out var buildings))
             {
-                pendingBuildings.Remove(chunkPos);  // 获取后移除
-                return buildings;
+                return new List<BuildingData>(buildings);
             }
             return new List<BuildingData>();
         }
 
         public List<BuildingData> GetBuildingsInRange(Vector3 center, float range)
         {
-            List<BuildingData> result = new List<BuildingData>();
-            Vector2Int chunkPos = ChunkSystem.Instance.WorldToChunkPosition(center);
+            Vector2Int targetChunkPos = ChunkSystem.Instance.WorldToChunkPosition(center);
+            HashSet<BuildingData> result = new HashSet<BuildingData>();  // 使用HashSet避免重复
             
-            // 首先获取待处理的建筑
-            if (pendingBuildings.ContainsKey(chunkPos))
+            // 获取待处理的建筑
+            if (pendingBuildings.TryGetValue(targetChunkPos, out var pendingList))
             {
-                result.AddRange(pendingBuildings[chunkPos]);
-                Debug.Log($"Found {pendingBuildings[chunkPos].Count} pending buildings for chunk {chunkPos}");
+                foreach (var buildingData in pendingList)
+                {
+                    result.Add(buildingData);
+                }
             }
             
-            // 然后获取范围内的其他建筑
-            float rangeSqr = range * range;
-            foreach (var buildingList in activeBuildings.Values)
+            // 获取当前区块中的建筑
+            if (chunkBuildingMap.TryGetValue(targetChunkPos, out var buildings))
             {
-                foreach (var building in buildingList)
+                foreach (var building in buildings)
                 {
-                    if (building != null && 
-                        Vector3.SqrMagnitude(building.transform.position - center) <= rangeSqr)
+                    if (building != null && building.BuildingData != null)
                     {
-                        if (building.BuildingData != null)
-                        {
-                            // 检查是否已经在结果列表中
-                            bool exists = result.Any(b => 
-                                b.buildingId == building.BuildingData.buildingId && 
-                                Vector3.Distance(b.position, building.BuildingData.position) < 0.1f);
-                                
-                            if (!exists)
-                            {
-                                result.Add(building.BuildingData);
-                            }
-                        }
-                        else
-                        {
-                            Debug.LogWarning($"Building {building.name} has no BuildingData!");
-                        }
+                        result.Add(building.BuildingData);
                     }
                 }
             }
             
-            Debug.Log($"Total buildings found in range for chunk {chunkPos}: {result.Count}");
-            return result;
+            return new List<BuildingData>(result);
         }
 
         #region 系统更新
         public void UpdateSystem(InfinityScaleManager.ScaleState currentState)
         {
             Camera mainCamera = Camera.main;
-            if (mainCamera == null)
-                return;
+            if (mainCamera == null) return;
 
-            foreach (var type in activeBuildings.Keys)
+            foreach (var type in activeBuildings.Keys.ToArray())  // 使用ToArray避免遍历时修改集合
             {
                 var buildings = activeBuildings[type];
-                foreach (var building in buildings)
+                if (buildings == null) continue;
+
+                foreach (var building in buildings.ToArray())
                 {
-                    if (building != null)
+                    if (building == null)
                     {
-                        float distance = Vector3.Distance(
-                            mainCamera.transform.position,
-                            building.transform.position
-                        );
-                        
-                        UpdateBuildingLOD(building, distance);
-                        
-                        // 根据当前状态更新建筑
-                        building.UpdateState(currentState);
+                        buildings.Remove(building);
+                        continue;
                     }
+
+                    float distance = Vector3.Distance(
+                        mainCamera.transform.position,
+                        building.transform.position
+                    );
+                    
+                    UpdateBuildingLOD(building, distance);
+                    building.UpdateState(currentState);
                 }
 
                 // 更新实例化渲染

@@ -21,6 +21,7 @@ namespace SURender.InfinityScale
         public bool IsVisible { get; private set; }
         public int CurrentLODLevel { get; private set; }
         public BuildingData BuildingData { get; private set; }
+        public bool UseInstancing => useInstancing;
         #endregion
 
         #region 私有字段
@@ -60,21 +61,25 @@ namespace SURender.InfinityScale
             currentVisibility = alpha;
             bool shouldBeVisible = alpha > 0;
             
-            if (gameObject.activeSelf != shouldBeVisible)
+            // 只有非实例化渲染的物体才需要控制GameObject的激活状态
+            if (!useInstancing)
             {
-                gameObject.SetActive(shouldBeVisible);
-                Debug.Log($"Building {BuildingId} visibility changed to {shouldBeVisible}, Type: {BuildingType}, IsInnerCity: {IsInnerCity}");
-            }
-            
-            // 如果可见，则更新材质透明度
-            if (shouldBeVisible && renderers != null)
-            {
-                foreach (var renderer in renderers)
+                if (gameObject.activeSelf != shouldBeVisible)
                 {
-                    if (renderer != null)
+                    gameObject.SetActive(shouldBeVisible);
+                    Debug.Log($"Building {BuildingId} visibility changed to {shouldBeVisible}, Type: {BuildingType}, IsInnerCity: {IsInnerCity}");
+                }
+                
+                // 如果可见，则更新材质透明度
+                if (shouldBeVisible && renderers != null)
+                {
+                    foreach (var renderer in renderers)
                     {
-                        propertyBlock.SetFloat("_Alpha", alpha);
-                        renderer.SetPropertyBlock(propertyBlock);
+                        if (renderer != null)
+                        {
+                            propertyBlock.SetFloat("_Alpha", alpha);
+                            renderer.SetPropertyBlock(propertyBlock);
+                        }
                     }
                 }
             }
@@ -98,43 +103,22 @@ namespace SURender.InfinityScale
         public virtual void UpdateState(InfinityScaleManager.ScaleState state)
         {
             // 根据缩放状态更新建筑
-            switch (state)
-            {
-                case InfinityScaleManager.ScaleState.InnerCity:
-                    if (IsInnerCity)
-                    {
-                        Show();
-                        Debug.Log($"Showing inner city building {BuildingId}");
-                    }
-                    else
-                    {
-                        Hide();
-                        Debug.Log($"Hiding outer city building {BuildingId}");
-                    }
-                    break;
-                    
-                case InfinityScaleManager.ScaleState.OuterCity:
-                    if (!IsInnerCity)
-                    {
-                        Show();
-                        Debug.Log($"Showing outer city building {BuildingId}");
-                    }
-                    else
-                    {
-                        Hide();
-                        Debug.Log($"Hiding inner city building {BuildingId}");
-                    }
-                    break;
-                    
-                case InfinityScaleManager.ScaleState.Transition:
-                    // 在过渡状态下，根据当前高度决定可见性
-                    float currentHeight = InfinityScaleManager.Instance.GetCurrentHeight();
-                    float alpha = IsInnerCity ? 
-                        Mathf.InverseLerp(500f, 300f, currentHeight) : // 内城建筑淡出
-                        Mathf.InverseLerp(300f, 500f, currentHeight);  // 外城建筑淡入
-                    UpdateVisibility(alpha);
-                    break;
-            }
+            // switch (state)
+            // {
+            //     case InfinityScaleManager.ScaleState.InnerCity:
+            //         if (IsInnerCity) Show();
+            //         else Hide();
+            //         break;
+            //         
+            //     case InfinityScaleManager.ScaleState.OuterCity:
+            //         if (!IsInnerCity) Show();
+            //         else Hide();
+            //         break;
+            //         
+            //     case InfinityScaleManager.ScaleState.Transition:
+            //         // 过渡状态的处理逻辑
+            //         break;
+            // }
         }
         #endregion
 
