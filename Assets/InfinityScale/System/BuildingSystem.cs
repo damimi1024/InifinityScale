@@ -28,10 +28,13 @@ namespace SURender.InfinityScale
         private Dictionary<BuildingType, MaterialPropertyBlock> propertyBlocks;
         private Dictionary<string, BuildingBase> buildingIdMap;  // 通过ID快速查找建筑
         private Dictionary<Vector2Int, HashSet<BuildingBase>> chunkBuildingMap;  // 通过区块位置快速查找建筑
+        private Dictionary<string, bool> prefabInstancingCache = new Dictionary<string, bool>();  // 预制体Instancing缓存
         private ResourceSystem resourceSystem;
         
         // 待处理的建筑
         private Dictionary<Vector2Int, HashSet<BuildingData>> pendingBuildings = new Dictionary<Vector2Int, HashSet<BuildingData>>();
+        // 实例化渲染的建筑数据
+        private Dictionary<BuildingType, HashSet<BuildingData>> instancedBuildingDataMap = new Dictionary<BuildingType, HashSet<BuildingData>>();
         private Transform fallbackContainer;
         #endregion
 
@@ -55,12 +58,14 @@ namespace SURender.InfinityScale
             propertyBlocks = new Dictionary<BuildingType, MaterialPropertyBlock>();
             buildingIdMap = new Dictionary<string, BuildingBase>();
             chunkBuildingMap = new Dictionary<Vector2Int, HashSet<BuildingBase>>();
+            instancedBuildingDataMap = new Dictionary<BuildingType, HashSet<BuildingData>>();
             resourceSystem = ResourceSystem.Instance;
 
             foreach (BuildingType type in System.Enum.GetValues(typeof(BuildingType)))
             {
                 activeBuildings[type] = new List<BuildingBase>();
                 propertyBlocks[type] = new MaterialPropertyBlock();
+                instancedBuildingDataMap[type] = new HashSet<BuildingData>();
             }
         }
 
@@ -165,7 +170,7 @@ namespace SURender.InfinityScale
             }
             chunkBuildingMap[chunkPos].Add(building);
             
-            // 记��类型映射
+            // 记录类型映射
             if (!activeBuildings.ContainsKey(building.BuildingType))
             {
                 activeBuildings[building.BuildingType] = new List<BuildingBase>();
@@ -191,7 +196,7 @@ namespace SURender.InfinityScale
                 }
             }
             
-            // 移除类型映射
+            // 移除��型映射
             if (activeBuildings.TryGetValue(building.BuildingType, out var buildingList))
             {
                 buildingList.Remove(building);
@@ -242,10 +247,15 @@ namespace SURender.InfinityScale
             if (!activeBuildings.TryGetValue(type, out var buildings) || buildings.Count == 0)
                 return;
 
+            // 获取使用实例化渲染的建筑数据
+            var instancedBuildingData = instancedBuildingDataMap[type];
+            if (instancedBuildingData.Count == 0)
+                return;
+
             // 分离使用实例化和非实例化的建筑
             var instancedBuildings = buildings.Where(b => b != null && b.UseInstancing && b.IsVisible).ToList();
             
-            if (instancedBuildings.Count == 0)
+            if (instancedBuildings.Count == 0 && instancedBuildingData.Count == 0)
                 return;
 
             var propertyBlock = propertyBlocks[type];
@@ -363,5 +373,69 @@ namespace SURender.InfinityScale
             }
         }
         #endregion
+
+        public bool CheckBuildingUseInstancing(BuildingData buildingData)
+        {
+            if (buildingData == null) return false;
+
+            string fullPath = $"Buildings/{buildingData.prefabPath}";
+            
+            // 检查缓存
+            if (prefabInstancingCache.TryGetValue(fullPath, out bool useInstancing))
+            {
+                return useInstancing;
+            }
+
+            // 如果没有缓存，默认不使用实例化
+            prefabInstancingCache[fullPath] = false;
+            
+            // 异步加载并更新缓存
+            ResourceSystem.Instance.LoadAssetAsync<GameObject>(fullPath, (prefab) =>
+            {
+                if (prefab != null)
+                {
+                    BuildingBase building = prefab.GetComponent<BuildingBase>();
+                    if (building != null)
+                    {
+                        prefabInstancingCache[fullPath] = building.UseInstancing;
+                    }
+                }
+            });
+            
+            return false; // 首次检查时返回false，等待异步加载更新缓存
+        }
+
+        public void UnregisterBuildingData(BuildingData buildingData)
+        {
+            if (buildingData == null) return;
+
+            // 从实例化渲染映射中移除
+            if (instancedBuildingDataMap.TryGetValue(buildingData.buildingType, out var dataSet))
+            {
+                dataSet.Remove(buildingData);
+            }
+
+            // 从待处理建筑中移除
+            Vector2Int chunkPos = ChunkSystem.Instance.WorldToChunkPosition(buildingData.position);
+            if (pendingBuildings.TryGetValue(chunkPos, out var pendingSet))
+            {
+                pendingSet.Remove(buildingData);
+                if (pendingSet.Count == 0)
+                {
+                    pendingBuildings.Remove(chunkPos);
+                }
+            }
+        }
+
+        public void AddInstancedBuildingData(BuildingData buildingData)
+        {
+            if (buildingData == null) return;
+
+            if (!instancedBuildingDataMap.ContainsKey(buildingData.buildingType))
+            {
+                instancedBuildingDataMap[buildingData.buildingType] = new HashSet<BuildingData>();
+            }
+            instancedBuildingDataMap[buildingData.buildingType].Add(buildingData);
+        }
     }
 }

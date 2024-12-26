@@ -70,20 +70,30 @@ public class TestSceneSetup : MonoBehaviour
         var chunkSystem = FindObjectOfType<ChunkSystem>();
         if (chunkSystem != null)
         {
-            // 计算建筑所在的区块位置
+            // 计算建筑所在的区块位��
             Vector2Int chunkPos = chunkSystem.WorldToChunkPosition(position);
             
-            // 如果区块不存在，先创建区块
-            if (!chunkSystem.IsChunkLoaded(chunkPos))
+            // 无论区块是否加载，都添加到待处理列表
+            BuildingSystem.Instance.AddPendingBuilding(chunkPos, buildingData);
+            
+            // 如果区块已加载，触发区块更新以处理新添加的建筑
+            if (chunkSystem.IsChunkLoaded(chunkPos))
             {
-                // 将建筑数据添加到BuildingSystem的待处理列表
-                BuildingSystem.Instance.AddPendingBuilding(chunkPos, buildingData);
-            }
-            else
-            {
-                // 如果区块已存在，直接添加到区块中
                 var chunk = chunkSystem.GetChunk(chunkPos);
-                BuildingSystem.Instance.CreateBuilding(buildingData, position, chunk.Transform);
+                if (chunk != null)
+                {
+                    // 检查是否使用实例化渲染
+                    bool useInstancing = BuildingSystem.Instance.CheckBuildingUseInstancing(buildingData);
+                    if (useInstancing)
+                    {
+                        chunk.AddBuildingData(buildingData);
+                        BuildingSystem.Instance.AddInstancedBuildingData(buildingData);
+                    }
+                    else
+                    {
+                        BuildingSystem.Instance.CreateBuilding(buildingData, position, chunk.Transform);
+                    }
+                }
             }
         }
     }

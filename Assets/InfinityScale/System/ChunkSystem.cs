@@ -277,19 +277,42 @@ namespace SURender.InfinityScale
             {
                 if (buildingData != null)
                 {
-                    Debug.LogWarning("create building2");
-                    BuildingSystem.Instance.CreateBuilding(
-                        buildingData,           // 建筑数据
-                        buildingData.position,  // 位置
-                        chunk.Transform,        // 父物体
-                        (building) =>           // 回调
-                        {
-                            if (building != null)
+                    // 检查建筑预制体是否使用实例化渲染
+                    bool useInstancing = BuildingSystem.Instance.CheckBuildingUseInstancing(buildingData);
+                    
+                    // 先添加到实例化数据中
+                    if (useInstancing)
+                    {
+                        chunk.AddBuildingData(buildingData);
+                        Debug.Log($"Added instanced building data for {buildingData.buildingId} to chunk {chunk.Position}");
+                    }
+                    else
+                    {
+                        // 如果不使用实例化渲染，创建实际的GameObject
+                        BuildingSystem.Instance.CreateBuilding(
+                            buildingData,
+                            buildingData.position,
+                            chunk.Transform,
+                            (building) =>
                             {
-                                chunk.AddBuilding(building);
-                                Debug.Log($"Added new building {building.BuildingId} to chunk {chunk.Position}");
-                            }
-                        });
+                                if (building != null)
+                                {
+                                    // 再次检查UseInstancing属性，因为可能在异步加载后发生变化
+                                    if (building.UseInstancing)
+                                    {
+                                        // 如果变成了实例化渲染，销毁GameObject并添加到实例化数据中
+                                        chunk.AddBuildingData(buildingData);
+                                        GameObject.Destroy(building.gameObject);
+                                        Debug.Log($"Converted building {buildingData.buildingId} to instanced rendering");
+                                    }
+                                    else
+                                    {
+                                        chunk.AddBuilding(building);
+                                        Debug.Log($"Added new building {building.BuildingId} to chunk {chunk.Position}");
+                                    }
+                                }
+                            });
+                    }
                     yield return null;
                 }
             }
@@ -309,7 +332,7 @@ namespace SURender.InfinityScale
                         terrainPrefab,
                         chunkWorldPos,
                         Quaternion.identity,
-                        chunk.Transform  // 设置���形的父物体
+                        chunk.Transform  // 设置地形的父物体
                     );
                 }
             });
@@ -376,6 +399,7 @@ namespace SURender.InfinityScale
         
         public List<BuildingBase> buildings { get; private set; }
         public GameObject terrainObject;
+        public List<BuildingData> instancedBuildingData { get; private set; }
 
         public Chunk(Vector2Int position, Transform chunkTransform)
         {
@@ -384,6 +408,7 @@ namespace SURender.InfinityScale
             IsLoaded = false;
             IsVisible = false;
             buildings = new List<BuildingBase>();
+            instancedBuildingData = new List<BuildingData>();
         }
 
         public void SetVisible(bool visible)
@@ -425,7 +450,7 @@ namespace SURender.InfinityScale
             // 清理建筑
             if (buildings != null)
             {
-                foreach (var building in buildings.ToArray())  // 使用ToArray()避免集合修改问题
+                foreach (var building in buildings.ToArray())
                 {
                     if (building != null)
                     {
@@ -434,6 +459,16 @@ namespace SURender.InfinityScale
                     }
                 }
                 buildings.Clear();
+            }
+
+            // 清理实例化渲染的建筑数据
+            if (instancedBuildingData != null)
+            {
+                foreach (var buildingData in instancedBuildingData)
+                {
+                    BuildingSystem.Instance?.UnregisterBuildingData(buildingData);
+                }
+                instancedBuildingData.Clear();
             }
 
             // 清理地形资源
@@ -451,6 +486,15 @@ namespace SURender.InfinityScale
             }
 
             ScaleEventSystem.TriggerChunkUnloaded(Position);
+        }
+
+        public void AddBuildingData(BuildingData buildingData)
+        {
+            if (buildingData != null && !instancedBuildingData.Contains(buildingData))
+            {
+                instancedBuildingData.Add(buildingData);
+                BuildingSystem.Instance.AddInstancedBuildingData(buildingData);
+            }
         }
     }
 }
