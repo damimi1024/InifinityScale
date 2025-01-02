@@ -97,61 +97,28 @@ namespace SURender.InfinityScale
             }
 
             string fullPath = $"Buildings/{data.prefabPath}";
-            ResourceSystem.Instance.LoadAssetAsync<GameObject>(fullPath, (prefab) =>
+            
+            // 检查是否使用实例化渲染
+            if (CheckBuildingUseInstancing(data))
             {
-                if (prefab != null)
+                // 如果使用实例化渲染，直接回调
+                onComplete?.Invoke(null);
+                return;
+            }
+
+            // 使用对象池获取或创建建筑实例
+            ObjectPoolSystem.Instance.GetBuilding(fullPath, position, parent, building =>
+            {
+                if (building != null)
                 {
-                    GameObject buildingObj = Instantiate(prefab, position, data.rotation);
-                    buildingObj.transform.localScale = data.scale;
+                    building.Initialize(data);
+                    RegisterBuilding(building);
                     
-                    // 如果父物体为空，使用默认容器
-                    if (parent == null)
-                    {
-                        Vector2Int chunkPos = ChunkSystem.Instance.WorldToChunkPosition(position);
-                        var chunk = ChunkSystem.Instance.GetChunk(chunkPos);
-                        if (chunk != null)
-                        {
-                            parent = chunk.Transform;
-                        }
-                        
-                        if (parent == null)
-                        {
-                            Debug.LogWarning($"No valid parent found for building at position {position}, using fallback container");
-                            if (fallbackContainer == null)
-                            {
-                                fallbackContainer = new GameObject("FallbackBuildingContainer").transform;
-                                fallbackContainer.SetParent(transform);
-                            }
-                            parent = fallbackContainer;
-                        }
-                    }
-                    
-                    buildingObj.transform.SetParent(parent);
-                    
-                    BuildingBase building = buildingObj.GetComponent<BuildingBase>();
-                    if (building != null)
-                    {
-                        building.Initialize(data);
-                        RegisterBuilding(building);
-                        
-                        // 根据当前状态设置初始可见性
-                        var currentState = InfinityScaleManager.Instance.GetCurrentState();
-                        building.UpdateState(currentState);
-                        
-                        onComplete?.Invoke(building);
-                    }
-                    else
-                    {
-                        Debug.LogError($"Building component not found on prefab: {fullPath}");
-                        Destroy(buildingObj);
-                        onComplete?.Invoke(null);
-                    }
+                    // 根据当前状态设置初始可见性
+                    var currentState = InfinityScaleManager.Instance.GetCurrentState();
+                    building.UpdateState(currentState);
                 }
-                else
-                {
-                    Debug.LogError($"Failed to load building prefab: {fullPath}");
-                    onComplete?.Invoke(null);
-                }
+                onComplete?.Invoke(building);
             });
         }
 
@@ -196,7 +163,7 @@ namespace SURender.InfinityScale
                 }
             }
             
-            // 移除��型映射
+            // 移除类型映射
             if (activeBuildings.TryGetValue(building.BuildingType, out var buildingList))
             {
                 buildingList.Remove(building);

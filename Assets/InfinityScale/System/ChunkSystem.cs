@@ -455,7 +455,8 @@ namespace SURender.InfinityScale
                     if (building != null)
                     {
                         BuildingSystem.Instance?.UnregisterBuilding(building);
-                        GameObject.Destroy(building.gameObject);
+                        // 将建筑返回对象池而不是销毁
+                        ObjectPoolSystem.Instance?.ReturnBuilding(building);
                     }
                 }
                 buildings.Clear();

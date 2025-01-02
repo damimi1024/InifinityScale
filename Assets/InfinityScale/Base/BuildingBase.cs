@@ -22,6 +22,7 @@ namespace SURender.InfinityScale
         public int CurrentLODLevel { get; private set; }
         public BuildingData BuildingData { get; private set; }
         public bool UseInstancing => useInstancing;
+        public string PrefabPath { get; set; }
         #endregion
 
         #region 私有字段
