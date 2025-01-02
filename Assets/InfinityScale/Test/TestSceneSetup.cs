@@ -12,37 +12,34 @@ public class TestSceneSetup : MonoBehaviour
     [SerializeField] private int outerCityBuildingCount = 50;
     [SerializeField] private float innerCityRadius = 100f;
     [SerializeField] private float outerCityRadius = 500f;
+    [SerializeField] private float gridSpacing = 2f; // 网格间距
 
     private void Start()
     {
-        // 创建测试建筑
-        CreateTestBuildings();
+        // 创建网格状建筑
+        CreateGridBuildings();
         
         // 注册建筑类型
         RegisterBuildingTypes();
     }
 
-    private void CreateTestBuildings()
+    private void CreateGridBuildings()
     {
-        // 创建内城建筑
-        for (int i = 0; i < innerCityBuildingCount; i++)
+        float range = 500f; // 生成范围为 -500 到 500
+        
+        // 计算在每个方向上需要生成的建筑数量
+        int buildingsPerSide = Mathf.FloorToInt(range * 2 / gridSpacing);
+        
+        for (float x = -range; x <= range; x += gridSpacing)
         {
-            float angle = (360f / innerCityBuildingCount) * i;
-            float radius = Random.Range(0f, innerCityRadius);
-            Vector3 position = GetPositionOnCircle(angle, radius);
-
-            CreateTestBuilding(true, position);
+            for (float z = -range; z <= range; z += gridSpacing)
+            {
+                Vector3 position = new Vector3(x, 0, z);
+                CreateTestBuilding(false, position);
+            }
         }
-
-        // 创建外城建筑
-        for (int i = 0; i < outerCityBuildingCount; i++)
-        {
-            float angle = Random.Range(0f, 360f);
-            float radius = Random.Range(innerCityRadius, outerCityRadius);
-            Vector3 position = GetPositionOnCircle(angle, radius);
-
-            CreateTestBuilding(false, position);
-        }
+        
+        Debug.Log($"Generated buildings in grid pattern from -500 to 500 with spacing {gridSpacing}");
     }
 
     private void CreateTestBuilding(bool isInnerCity, Vector3 position)
@@ -63,14 +60,14 @@ public class TestSceneSetup : MonoBehaviour
             isInnerCity = isInnerCity,
             position = position,
             rotation = Quaternion.Euler(0, Random.Range(0f, 360f), 0),
-            scale = Vector3.one
+            scale = Vector3.one * Random.Range(0.8f, 1.2f) // 添加随机缩放
         };
 
         // 获取ChunkSystem
         var chunkSystem = FindObjectOfType<ChunkSystem>();
         if (chunkSystem != null)
         {
-            // 计算建筑所在的区块位��
+            // 计算建筑所在的区块位置
             Vector2Int chunkPos = chunkSystem.WorldToChunkPosition(position);
             
             // 无论区块是否加载，都添加到待处理列表
@@ -108,13 +105,6 @@ public class TestSceneSetup : MonoBehaviour
             path = path.Substring(0, path.Length - 7);
         }
         return path;
-    }
-
-    private Vector3 GetPositionOnCircle(float angle, float radius)
-    {
-        float x = Mathf.Cos(angle * Mathf.Deg2Rad) * radius;
-        float z = Mathf.Sin(angle * Mathf.Deg2Rad) * radius;
-        return new Vector3(x, 0, z);
     }
 
     private void RegisterBuildingTypes()

@@ -25,6 +25,7 @@ namespace SURender.InfinityScale
         private float lastUpdateTime;
         private Dictionary<string, string> debugInfo;
         private List<PerformanceMetric> performanceMetrics;
+        private Vector2 scrollPosition;
         #endregion
 
         #region 性能指标
@@ -76,12 +77,32 @@ namespace SURender.InfinityScale
         {
             if (!config.showDebugInfo) return;
 
-            GUILayout.BeginArea(new Rect(10, 10, 300, Screen.height - 20));
+            // 设置GUI样式
+            GUIStyle style = new GUIStyle(GUI.skin.label);
+            style.normal.textColor = Color.red;
+            style.fontSize = 20;  // 设置字体大小
+            style.fontStyle = FontStyle.Bold;  // 设置字体为粗体
+            style.padding = new RectOffset(5, 5, 5, 5);  // 设置内边距
+            style.margin = new RectOffset(0, 0, 10, 10); // 设置外边距，增加行间距
+            
+            // 计算所需高度
+            float totalHeight = 0;
+            int itemCount = debugInfo.Count;
+            if (config.showPerformanceInfo)
+            {
+                itemCount += performanceMetrics.Count;
+            }
+            float itemHeight = style.fontSize + style.margin.vertical;
+            totalHeight = itemHeight * itemCount + 40; // 40是额外空间
+            
+            // 创建滚动区域
+            GUILayout.BeginArea(new Rect(10, 10, 400, Mathf.Min(totalHeight, Screen.height - 40)));
+            scrollPosition = GUILayout.BeginScrollView(scrollPosition);
             
             // 显示调试信息
             foreach (var info in debugInfo)
             {
-                GUILayout.Label($"{info.Key}: {info.Value}");
+                GUILayout.Label($"{info.Key}: {info.Value}", style, GUILayout.Height(itemHeight));
             }
 
             // 显示性能信息
@@ -90,10 +111,12 @@ namespace SURender.InfinityScale
                 GUILayout.Space(20);
                 foreach (var metric in performanceMetrics)
                 {
-                    GUILayout.Label($"{metric.name}: {metric.value:F2} (Min: {metric.min:F2}, Max: {metric.max:F2})");
+                    GUILayout.Label($"{metric.name}: {metric.value:F2} (Min: {metric.min:F2}, Max: {metric.max:F2})", 
+                        style, GUILayout.Height(itemHeight));
                 }
             }
 
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
         #endregion

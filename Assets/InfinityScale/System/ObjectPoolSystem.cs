@@ -108,6 +108,11 @@ namespace SURender.InfinityScale
 
         public void GetBuilding(string prefabPath, Vector3 position, Transform parent, Action<BuildingBase> onComplete)
         {
+            if (parent == null)
+            {
+                onComplete?.Invoke(null);
+                return;
+            }
             if (!buildingPools.ContainsKey(prefabPath))
             {
                 buildingPools[prefabPath] = new Queue<BuildingBase>();
@@ -115,7 +120,7 @@ namespace SURender.InfinityScale
                 PrewarmPool(prefabPath, config.defaultPoolSize);
             }
 
-            if (buildingPools[prefabPath].Count > 0)
+            if (buildingPools[prefabPath].Count > 0 )
             {
                 // 从池中获取对象
                 var building = buildingPools[prefabPath].Dequeue();
@@ -130,12 +135,13 @@ namespace SURender.InfinityScale
             // 如果池中没有可用对象，且未达到最大大小，创建新实例
             if (poolSizes[prefabPath] < config.maxPoolSize)
             {
+                //Debug.Log("create new instance"+ parent.gameObject.name);
                 CreateNewInstance(prefabPath, false, position, parent, onComplete);
             }
             else
             {
                 // 如果达到最大大小，等待资源释放
-                Debug.LogWarning($"Object pool for {prefabPath} has reached its maximum size. Waiting for objects to be returned.");
+                //Debug.LogWarning($"Object pool for {prefabPath} has reached its maximum size. Waiting for objects to be returned.");
                 onComplete?.Invoke(null);
             }
         }

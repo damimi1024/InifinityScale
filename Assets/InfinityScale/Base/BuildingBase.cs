@@ -68,7 +68,7 @@ namespace SURender.InfinityScale
                 if (gameObject.activeSelf != shouldBeVisible)
                 {
                     gameObject.SetActive(shouldBeVisible);
-                    Debug.Log($"Building {BuildingId} visibility changed to {shouldBeVisible}, Type: {BuildingType}, IsInnerCity: {IsInnerCity}");
+                   // Debug.Log($"Building {BuildingId} visibility changed to {shouldBeVisible}, Type: {BuildingType}, IsInnerCity: {IsInnerCity}");
                 }
                 
                 // 如果可见，则更新材质透明度
@@ -93,7 +93,7 @@ namespace SURender.InfinityScale
             if (level == CurrentLODLevel) return;
             
             CurrentLODLevel = level;
-            if (lodGroup != null)
+            if (lodGroup != null && lodGroup.enabled && gameObject.activeInHierarchy)
             {
                 lodGroup.ForceLOD(level);
             }
