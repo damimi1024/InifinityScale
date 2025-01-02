@@ -298,13 +298,49 @@ MonoBehaviour:
   config:
     moveSpeed: 5
     minHeight: 10
-    maxHeight: 2000
+    maxHeight: 200
     damping: 0.2
     fixedPitch: 45
     zoomSpeed: 500
-    panSpeed: 0.01
+    panSpeed: 0.1
+    pitchCurve:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 0.42344743
+        value: 0.51338655
+        inSlope: -1
+        outSlope: -1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    enableDynamicPitch: 1
+    pitchTransitionSpeed: 5
   mainCamera: {fileID: 963194227}
   cameraTarget: {fileID: 963194228}
+  debugMode: 0
 --- !u!114 &432125144
 MonoBehaviour:
   m_ObjectHideFlags: 0

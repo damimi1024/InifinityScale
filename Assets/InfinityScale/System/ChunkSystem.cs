@@ -16,8 +16,6 @@ namespace SURender.InfinityScale
         [System.Serializable]
         public class ChunkConfig
         {
-            public float chunkSize = 100f;           // 基础区块大小
-            public int viewDistance = 5;             // 基础可见区块距离
             public int maxConcurrentLoads = 4;       // 最大同时加载数
             public float loadingInterval = 0.1f;     // 加载间隔
             public bool enableDebugLog = false;      // 是否启用调试日志
@@ -232,10 +230,12 @@ namespace SURender.InfinityScale
                 }
 
                 // 处理加载队列
-                while (loadQueue.Count > 0)
+                int concurrentLoads = 0;
+                while (loadQueue.Count > 0 && concurrentLoads < config.maxConcurrentLoads)
                 {
                     Vector2Int chunkPos = loadQueue.Dequeue();
                     LoadChunk(chunkPos);
+                    concurrentLoads++;
                     yield return wait;
                 }
 
@@ -369,11 +369,12 @@ namespace SURender.InfinityScale
         private IEnumerator LoadChunkBuildings(Chunk chunk)
         {
             Vector3 chunkWorldPos = ChunkToWorldPosition(chunk.Position);
+            float currentChunkSize = lodConfig.GetChunkSizeAtLOD(currentLODLevel);
             
             // 从BuildingSystem获取该区块范围内的建筑数据
             var buildingsInChunk = BuildingSystem.Instance.GetBuildingsInRange(
                 chunkWorldPos,
-                config.chunkSize
+                currentChunkSize
             );
             
             DebugLog($"Found {buildingsInChunk.Count} buildings in range for chunk {chunk.Position}");
@@ -449,10 +450,11 @@ namespace SURender.InfinityScale
         #region 辅助方法
         private Vector3 ChunkToWorldPosition(Vector2Int chunkPosition)
         {
+            float currentChunkSize = lodConfig.GetChunkSizeAtLOD(currentLODLevel);
             return new Vector3(
-                chunkPosition.x * config.chunkSize,
+                chunkPosition.x * currentChunkSize,
                 0,
-                chunkPosition.y * config.chunkSize
+                chunkPosition.y * currentChunkSize
             );
         }
         #endregion

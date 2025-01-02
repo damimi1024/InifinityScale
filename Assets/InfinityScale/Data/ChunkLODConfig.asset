@@ -19,24 +19,24 @@ MonoBehaviour:
     viewDistance: 2
     useInstancing: 0
     detailLevel: 1
-  - distance: 200
+  - distance: 20
     chunkSizeMultiplier: 2
-    viewDistance: 15
+    viewDistance: 2
     useInstancing: 0
     detailLevel: 0.8
-  - distance: 500
+  - distance: 50
     chunkSizeMultiplier: 4
-    viewDistance: 20
+    viewDistance: 2
     useInstancing: 0
     detailLevel: 0.6
-  - distance: 1000
+  - distance: 100
     chunkSizeMultiplier: 8
-    viewDistance: 25
+    viewDistance: 2
     useInstancing: 0
     detailLevel: 0.4
-  - distance: 2000
+  - distance: 200
     chunkSizeMultiplier: 16
-    viewDistance: 30
+    viewDistance: 2
     useInstancing: 0
     detailLevel: 0.2
   transitionDuration: 0.1

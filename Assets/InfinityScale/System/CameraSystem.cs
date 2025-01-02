@@ -12,14 +12,25 @@ namespace SURender.InfinityScale
             public float minHeight = 10f;            // 最小高度
             public float maxHeight = 2000f;          // 最大高度
             public float damping = 0.2f;             // 平滑过渡时间
-            public float fixedPitch = 45f;           // 固定俯视角度
+            public float fixedPitch = 45f;           // 低高度时的固定俯仰角
             public float zoomSpeed = 100f;           // 缩放速度
             public float panSpeed = 0.5f;            // 平移速度系数
+            
+            // 动态俯仰角配置
+            public AnimationCurve pitchCurve = new AnimationCurve(  // 高度到俯仰角的映射曲线
+                new Keyframe(0f, 1f, 0f, 0f),       // 低高度时保持 fixedPitch
+                new Keyframe(0.3f, 0.8f, -1f, -1f), // 开始缓慢过渡
+                new Keyframe(0.7f, 0.3f, -1f, -1f), // 加速过渡
+                new Keyframe(1f, 0f, 0f, 0f)        // 高高度时趋近90度
+            );
+            public bool enableDynamicPitch = true;   // 是否启用动态俯仰角
+            public float pitchTransitionSpeed = 5f;  // 俯仰角过渡速度
         }
 
         [SerializeField] private CameraConfig config;
         [SerializeField] private Camera mainCamera;
         [SerializeField] private Transform cameraTarget;
+        [SerializeField] private bool debugMode = false;
         #endregion
 
         #region 私有字段
@@ -27,6 +38,7 @@ namespace SURender.InfinityScale
         private Vector3 currentVelocity;
         private bool isDragging = false;
         private Vector3 lastMousePosition;
+        private float currentPitch;
         #endregion
 
         #region Unity生命周期
@@ -45,6 +57,11 @@ namespace SURender.InfinityScale
         {
             HandleInput();
             UpdateCameraTransform();
+            
+            if (config.enableDynamicPitch)
+            {
+                UpdateCameraPitch();
+            }
         }
         #endregion
 
@@ -52,9 +69,10 @@ namespace SURender.InfinityScale
         private void InitializeCamera()
         {
             targetPosition = cameraTarget.position;
+            currentPitch = config.fixedPitch;
             
-            // 设置固定的俯视角度
-            mainCamera.transform.rotation = Quaternion.Euler(config.fixedPitch, 0, 0);
+            // 设置初始俯仰角
+            UpdateCameraPitch();
         }
         #endregion
 
@@ -114,12 +132,18 @@ namespace SURender.InfinityScale
                 // 根据当前高度调整缩放速度，高度越高缩放越快
                 float heightFactor = Mathf.Lerp(0.5f, 2f, (currentHeight - config.minHeight) / (config.maxHeight - config.minHeight));
                 float zoomAmount = scrollDelta * config.zoomSpeed * heightFactor * Time.deltaTime;
-                // Debug.Log(zoomAmount);
+                
                 // 计算新的目标高度
                 float newHeight = Mathf.Clamp(currentHeight - zoomAmount, config.minHeight, config.maxHeight);
                 
-                // 更新相机高度
-                UpdateSystem(newHeight);
+                // 直接更新相机高度，不使用平滑过渡
+                Vector3 newPosition = mainCamera.transform.position;
+                newPosition.y = newHeight;
+                mainCamera.transform.position = newPosition;
+                targetPosition.y = newHeight;
+                
+                // 立即更新俯仰角
+                UpdateCameraPitch();
             }
         }
 
@@ -131,7 +155,7 @@ namespace SURender.InfinityScale
                 0,
                 Input.GetAxis("Vertical")
             );
- 
+
             if (moveInput.magnitude > 0.1f)
             {
                 // 根据相机朝向调整移动方向
@@ -155,24 +179,56 @@ namespace SURender.InfinityScale
                 config.damping
             );
 
-            // 保持固定的相机角度和高度
+            // 只更新XZ平面的位置，保持Y轴高度
             Vector3 cameraPosition = cameraTarget.position;
-            cameraPosition.y = mainCamera.transform.position.y; // 保持当前高度
+            cameraPosition.y = mainCamera.transform.position.y;
             mainCamera.transform.position = cameraPosition;
+        }
+
+        private void UpdateCameraPitch()
+        {
+            if (mainCamera == null) return;
+
+            float height = mainCamera.transform.position.y;
+            float normalizedHeight = Mathf.Clamp01((height - config.minHeight) / (config.maxHeight - config.minHeight));
+            
+            // 使用曲线计算插值因子
+            float t = config.pitchCurve.Evaluate(normalizedHeight);
+            
+            // 在固定俯仰角和90度之间插值
+            float targetPitch = Mathf.Lerp(90f, config.fixedPitch, t);
+            
+            // 直接设置目标俯仰角
+            currentPitch = targetPitch;
+            
+            // 创建一个新的旋转，只设置X轴（俯仰角）
+            Quaternion targetRotation = Quaternion.Euler(currentPitch, mainCamera.transform.eulerAngles.y, 0);
+            
+            // 应用旋转
+            mainCamera.transform.rotation = targetRotation;
+
+            if (debugMode)
+            {
+                Debug.Log($"Height: {height:F1}, Normalized: {normalizedHeight:F2}, T: {t:F2}, Pitch: {currentPitch:F1}");
+            }
         }
         #endregion
 
         #region 公共接口
         public void UpdateSystem(float height)
         {
-            // 更新相机高度
+            // 直接更新相机高度
             Vector3 newPosition = mainCamera.transform.position;
             height = Mathf.Clamp(height, config.minHeight, config.maxHeight);
             newPosition.y = height;
             mainCamera.transform.position = newPosition;
-            
-            // 更新目标位置的高度
             targetPosition.y = height;
+            
+            // 立即更新俯仰角
+            if (config.enableDynamicPitch)
+            {
+                UpdateCameraPitch();
+            }
         }
 
         public void SetPosition(Vector3 position)
@@ -196,6 +252,48 @@ namespace SURender.InfinityScale
         {
             return mainCamera.ScreenPointToRay(Input.mousePosition);
         }
+        #endregion
+
+        #region 调试
+        private void OnDrawGizmos()
+        {
+            if (!debugMode || mainCamera == null) return;
+
+            Vector3 position = mainCamera.transform.position;
+            Vector3 forward = mainCamera.transform.forward;
+            
+            // 绘制相机朝向
+            Gizmos.color = Color.blue;
+            Gizmos.DrawRay(position, forward * 10f);
+            
+            // 绘制垂直参考线
+            Gizmos.color = Color.green;
+            Gizmos.DrawRay(position, Vector3.down * 10f);
+        }
+
+#if UNITY_EDITOR
+        // 在Inspector中添加曲线预览
+        [UnityEditor.CustomEditor(typeof(CameraSystem))]
+        public class CameraSystemEditor : UnityEditor.Editor
+        {
+            public override void OnInspectorGUI()
+            {
+                DrawDefaultInspector();
+
+                CameraSystem system = (CameraSystem)target;
+                if (system.config.enableDynamicPitch)
+                {
+                    UnityEditor.EditorGUILayout.Space();
+                    UnityEditor.EditorGUILayout.HelpBox(
+                        "Pitch Curve Guide:\n" +
+                        "X轴: 0 = minHeight, 1 = maxHeight\n" +
+                        "Y轴: 0 = 90度(垂直), 1 = fixedPitch\n" +
+                        "调整曲线来控制相机角度的过渡效果",
+                        UnityEditor.MessageType.Info);
+                }
+            }
+        }
+#endif
         #endregion
     }
 }
