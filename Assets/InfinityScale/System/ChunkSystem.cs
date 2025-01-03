@@ -88,7 +88,7 @@ namespace SURender.InfinityScale
             float currentChunkSize = lodConfig.GetChunkSizeAtLOD(currentLODLevel);
             
             // 使用当前区块大小计算中心区块位置
-            Vector2Int newCenterChunk = WorldToChunkPosition(cameraPosition, currentChunkSize);
+            Vector2Int newCenterChunk = CalculateCenterChunk(cameraPosition, currentChunkSize);
 
             if (newCenterChunk != currentCenterChunk || 
                 Time.time - lastLODUpdateTime > lodConfig.transitionDuration)
@@ -139,8 +139,7 @@ namespace SURender.InfinityScale
                     var tempChunk = new Chunk(chunkPos, null, currentChunkSize);
                     
                     // 检查是否在视锥体内并且在视距内
-                    if (tempChunk.IsInFrustum(frustumPlanes) && 
-                        tempChunk.IsInViewDistance(cameraPosition, viewDistance * currentChunkSize))
+                    if (tempChunk.IsInFrustum(frustumPlanes, cameraPosition) )
                     {
                         newVisibleChunks.Add(chunkPos);
                     }
@@ -167,7 +166,7 @@ namespace SURender.InfinityScale
                 {
                     chunk.SetVisible(shouldBeVisible);
                     
-                    if (!shouldBeVisible)
+                    if (!shouldBeVisible && !unloadQueue.Contains(chunkPos))
                     {
                         unloadQueue.Enqueue(chunkPos);
                     }
@@ -341,12 +340,12 @@ namespace SURender.InfinityScale
                             });
                         
                         // 每创建MAX_BUILDINGS_PER_FRAME个建筑后才暂停一帧
-                        buildingsCreatedThisFrame++;
-                        if (buildingsCreatedThisFrame >= MAX_BUILDINGS_PER_FRAME)
-                        {
-                            buildingsCreatedThisFrame = 0;
-                            yield return null;
-                        }
+                        // buildingsCreatedThisFrame++;
+                        // if (buildingsCreatedThisFrame >= MAX_BUILDINGS_PER_FRAME)
+                        // {
+                        //     buildingsCreatedThisFrame = 0;
+                        //     yield return null;
+                        // }
                     }
                 }
             }
@@ -460,6 +459,34 @@ namespace SURender.InfinityScale
                 chunkPosition.y * currentChunkSize
             );
         }
+
+        private Vector2Int CalculateCenterChunk(Vector3 cameraPosition, float currentChunkSize)
+        {
+            Camera mainCamera = Camera.main;
+            Vector3 forward = mainCamera.transform.forward;
+            forward.y = 0; // 将前向量投影到地平面上
+            forward.Normalize();
+            
+            // 根据相机高度和倾斜角计算前向偏移
+            float pitch = Vector3.Angle(mainCamera.transform.forward, Vector3.down); // 获取相机俯仰角
+            float forwardOffset = cameraPosition.y * Mathf.Tan((90f - pitch) * Mathf.Deg2Rad);
+            
+            // 计算地面上的中心点
+            Vector3 centerPoint = new Vector3(
+                cameraPosition.x + forward.x * forwardOffset,
+                0,
+                cameraPosition.z + forward.z * forwardOffset
+            );
+            
+            if (config.enableDebugLog)
+            {
+                //Debug.Log($"Camera Height: {cameraPosition.y}, Pitch: {pitch}, Forward Offset: {forwardOffset}");
+                Debug.DrawLine(cameraPosition, centerPoint, Color.red, 0.1f);
+                Debug.Log(WorldToChunkPosition(centerPoint, currentChunkSize));
+            }
+            
+            return WorldToChunkPosition(centerPoint, currentChunkSize);
+        }
         #endregion
 
         #region 公共接口
@@ -542,6 +569,7 @@ namespace SURender.InfinityScale
 
         public void Unload()
         {
+            Debug.Log("UNLOAD "+Position  );
             // 确保先取消任何正在进行的加载
             CancelLoading();
             
@@ -591,15 +619,18 @@ namespace SURender.InfinityScale
 
         private void UpdateChunkBounds()
         {
-            chunkCenter = new Vector3(
-                Position.x * chunkSize + chunkSize * 0.5f,
-                0,
-                Position.y * chunkSize + chunkSize * 0.5f
-            );
             
+            // 计算chunk在世界空间中的中心点
+            chunkCenter = new Vector3(
+                Position.x * chunkSize + chunkSize * 0.5f,  // X轴中心
+                0,                                          // 保持在地面
+                Position.y * chunkSize + chunkSize * 0.5f   // Z轴中心
+            );
+    
+            // 创建固定高度的包围盒
             chunkBounds = new Bounds(
-                chunkCenter,
-                new Vector3(chunkSize, 1000f, chunkSize)
+                chunkCenter,                                // 包围盒中心在地面
+                new Vector3(chunkSize, 1000f, chunkSize)    // 使用固定高度，确保能包含所有建筑
             );
         }
 
@@ -698,9 +729,22 @@ namespace SURender.InfinityScale
             return Vector3.Distance(cameraPosition, chunkCenter) <= maxDistance;
         }
 
-        public bool IsInFrustum(Plane[] frustumPlanes)
+        public bool IsInFrustum(Plane[] frustumPlanes, Vector3 cameraPosition)
         {
             return GeometryUtility.TestPlanesAABB(frustumPlanes, chunkBounds);
+            // 更新包围盒以适应当前相机位置
+            UpdateChunkBounds();
+            
+            // 检查包围盒是否在视锥体内
+            if (!GeometryUtility.TestPlanesAABB(frustumPlanes, chunkBounds))
+                return false;
+            
+            // 额外检查：计算相机到区块的方向向量
+            Vector3 toCameraDir = (cameraPosition - chunkCenter).normalized;
+            float angle = Vector3.Angle(Camera.main.transform.forward, toCameraDir);
+            
+            // 考虑相机视角的一半（FOV/2）再加上一些余量
+            return angle <= (Camera.main.fieldOfView * 0.6f);
         }
 
         public float GetDistanceToCamera(Vector3 cameraPosition)
