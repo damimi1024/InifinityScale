@@ -12,29 +12,29 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bcdf7cb76341e486888e1edb346073ab, type: 3}
   m_Name: ChunkLODConfig
   m_EditorClassIdentifier: 
-  baseChunkSize: 50
+  baseChunkSize: 10
   lodLevels:
   - distance: 0
-    chunkSizeMultiplier: 1
+    chunkSizeMultiplier: 2
     viewDistance: 2
     useInstancing: 0
     detailLevel: 1
   - distance: 20
-    chunkSizeMultiplier: 2
+    chunkSizeMultiplier: 4
     viewDistance: 2
     useInstancing: 0
     detailLevel: 0.8
   - distance: 50
-    chunkSizeMultiplier: 4
+    chunkSizeMultiplier: 6
     viewDistance: 2
     useInstancing: 0
     detailLevel: 0.6
-  - distance: 100
+  - distance: 200
     chunkSizeMultiplier: 8
     viewDistance: 2
     useInstancing: 0
     detailLevel: 0.4
-  - distance: 200
+  - distance: 400
     chunkSizeMultiplier: 16
     viewDistance: 2
     useInstancing: 0

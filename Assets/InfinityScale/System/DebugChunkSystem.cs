@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEditor;
 
 namespace SURender.InfinityScale
@@ -20,6 +21,8 @@ namespace SURender.InfinityScale
             public float boundsHeight = 0.1f;        // 区块边界高度
             [Range(0.1f, 5f)]
             public float boundaryLineHeight = 2f;    // 边界线高度
+            public bool showCameraFrustum = true;  // 新增：是否显示相机视锥体
+            public Color frustumColor = new Color(1f, 0f, 0f, 0.2f);  // 新增：视锥体颜色
         }
 
         [SerializeField] private DebugConfig config = new DebugConfig();
@@ -101,6 +104,82 @@ namespace SURender.InfinityScale
                 if (chunkPos == currentChunk)
                 {
                     DrawCenterChunkMarker(worldPos, currentChunkSize);
+                }
+            }
+
+            // 绘制相机视锥体地面投影
+            if (config.showCameraFrustum)
+            {
+                Camera cam = Camera.main;
+                float near = cam.nearClipPlane;
+                float far = cam.farClipPlane;
+                float fov = cam.fieldOfView;
+                float aspect = cam.aspect;
+
+                // 计算近平面和远平面的高度和宽度
+                float nearHeight = 2.0f * near * Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad);
+                float nearWidth = nearHeight * aspect;
+                float farHeight = 2.0f * far * Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad);
+                float farWidth = farHeight * aspect;
+
+                // 获取相机的变换信息
+                Vector3 pos = cam.transform.position;
+                Vector3 forward = cam.transform.forward;
+                Vector3 right = cam.transform.right;
+                Vector3 up = cam.transform.up;
+
+                // 计算近平面四个角点
+                Vector3[] nearCorners = new Vector3[4];
+                nearCorners[0] = pos + forward * near - right * nearWidth * 0.5f + up * nearHeight * 0.5f;
+                nearCorners[1] = pos + forward * near + right * nearWidth * 0.5f + up * nearHeight * 0.5f;
+                nearCorners[2] = pos + forward * near + right * nearWidth * 0.5f - up * nearHeight * 0.5f;
+                nearCorners[3] = pos + forward * near - right * nearWidth * 0.5f - up * nearHeight * 0.5f;
+
+                // 计算远平面四个角点
+                Vector3[] farCorners = new Vector3[4];
+                farCorners[0] = pos + forward * far - right * farWidth * 0.5f + up * farHeight * 0.5f;
+                farCorners[1] = pos + forward * far + right * farWidth * 0.5f + up * farHeight * 0.5f;
+                farCorners[2] = pos + forward * far + right * farWidth * 0.5f - up * farHeight * 0.5f;
+                farCorners[3] = pos + forward * far - right * farWidth * 0.5f - up * farHeight * 0.5f;
+
+                // 计算射线与地面（y=0）的交点
+                List<Vector3> groundIntersections = new List<Vector3>();
+                for (int i = 0; i < 4; i++)
+                {
+                    Vector3 nearRay = nearCorners[i] - pos;
+                    Vector3 farRay = farCorners[i] - pos;
+
+                    // 计算射线与地面的交点
+                    float t1 = -pos.y / nearRay.y;
+                    float t2 = -pos.y / farRay.y;
+
+                    if (t1 > 0) groundIntersections.Add(pos + nearRay * t1);
+                    if (t2 > 0) groundIntersections.Add(pos + farRay * t2);
+                }
+
+                // 绘制地面投影
+                if (groundIntersections.Count >= 3)
+                {
+                    Gizmos.color = config.frustumColor;
+                    // 使用三角形扇形绘制投影区域
+                    Vector3 center = Vector3.zero;
+                    foreach (var point in groundIntersections)
+                    {
+                        center += point;
+                    }
+                    center /= groundIntersections.Count;
+
+                    // 按照角度排序点
+                    var sortedPoints = groundIntersections.OrderBy(p => 
+                        Mathf.Atan2(p.z - center.z, p.x - center.x)).ToList();
+
+                    // 绘制三角形扇形
+                    for (int i = 0; i < sortedPoints.Count; i++)
+                    {
+                        int nextIndex = (i + 1) % sortedPoints.Count;
+                        Gizmos.DrawLine(sortedPoints[i], sortedPoints[nextIndex]);
+                        Gizmos.DrawLine(center, sortedPoints[i]);
+                    }
                 }
             }
         }
