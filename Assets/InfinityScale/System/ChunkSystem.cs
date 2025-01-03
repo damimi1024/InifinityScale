@@ -311,7 +311,9 @@ namespace SURender.InfinityScale
         private IEnumerator LoadChunkContent(Chunk chunk)
         {
             bool hasLoadedAnyBuilding = false;
-            int pendingBuildings = 0;  // 跟踪待处理的建筑数量
+            int pendingBuildings = 0;  
+            int buildingsCreatedThisFrame = 0;
+            const int MAX_BUILDINGS_PER_FRAME = 10; // 每帧最多创建10个建筑
             
             // 先检查是否有之前保存的建筑数据
             var savedBuildings = BuildingSystem.Instance.GetPendingBuildings(chunk.Position);
@@ -322,7 +324,7 @@ namespace SURender.InfinityScale
                 {
                     if (buildingData != null)
                     {
-                        pendingBuildings++;  // 增加待处理数量
+                        pendingBuildings++;  
                         BuildingSystem.Instance.CreateBuilding(
                             buildingData,
                             buildingData.position,
@@ -335,16 +337,17 @@ namespace SURender.InfinityScale
                                     hasLoadedAnyBuilding = true;
                                     DebugLog($"Restored building {building.BuildingId} to chunk {chunk.Position}");
                                 }
-                                pendingBuildings--;  // 完成一个建筑的处理
+                                pendingBuildings--;  
                             });
-                        yield return null;
+                        
+                        // 每创建MAX_BUILDINGS_PER_FRAME个建筑后才暂停一帧
+                        buildingsCreatedThisFrame++;
+                        if (buildingsCreatedThisFrame >= MAX_BUILDINGS_PER_FRAME)
+                        {
+                            buildingsCreatedThisFrame = 0;
+                            yield return null;
+                        }
                     }
-                }
-                
-                // 等待所有建筑创建完成
-                while (pendingBuildings > 0)
-                {
-                    yield return null;
                 }
             }
             
