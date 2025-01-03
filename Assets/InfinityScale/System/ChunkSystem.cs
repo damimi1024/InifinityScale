@@ -7,24 +7,29 @@ namespace SURender.InfinityScale
     public class ChunkSystem : MonoBehaviour
     {
         #region 单例
+
         public static ChunkSystem Instance { get; private set; }
+
         #endregion
 
         #region 序列化字段
+
         [SerializeField] public ChunkLODConfig lodConfig;
-        
+
         [System.Serializable]
         public class ChunkConfig
         {
-            public int maxConcurrentLoads = 4;       // 最大同时加载数
-            public float loadingInterval = 0.1f;     // 加载间隔
-            public bool enableDebugLog = false;      // 是否启用调试日志
+            public int maxConcurrentLoads = 4; // 最大同时加载数
+            public float loadingInterval = 0.1f; // 加载间隔
+            public bool enableDebugLog = false; // 是否启用调试日志
         }
 
         [SerializeField] public ChunkConfig config;
+
         #endregion
 
         #region 私有字段
+
         public Dictionary<Vector2Int, Chunk> loadedChunks;
         private HashSet<Vector2Int> visibleChunks;
         private Queue<Vector2Int> loadQueue;
@@ -43,9 +48,11 @@ namespace SURender.InfinityScale
                 Debug.Log($"[ChunkSystem] {message}");
             }
         }
+
         #endregion
 
         #region Unity生命周期
+
         private void Awake()
         {
             if (Instance == null)
@@ -58,9 +65,11 @@ namespace SURender.InfinityScale
                 Destroy(gameObject);
             }
         }
+
         #endregion
 
         #region 初始化
+
         private void InitializeSystem()
         {
             loadedChunks = new Dictionary<Vector2Int, Chunk>();
@@ -70,15 +79,17 @@ namespace SURender.InfinityScale
 
             buildingContainer = new GameObject("ChunkContainer").transform;
             buildingContainer.SetParent(transform);
-            
+
             if (lodConfig == null)
             {
                 Debug.LogError("ChunkLODConfig not assigned!");
             }
         }
+
         #endregion
 
         #region 区块管理
+
         public void UpdateSystem(Vector3 cameraPosition)
         {
             // 更新LOD级别
@@ -86,11 +97,11 @@ namespace SURender.InfinityScale
 
             // 获取当前LOD级别的区块大小
             float currentChunkSize = lodConfig.GetChunkSizeAtLOD(currentLODLevel);
-            
+
             // 使用当前区块大小计算中心区块位置
             Vector2Int newCenterChunk = CalculateCenterChunk(cameraPosition, currentChunkSize);
 
-            if (newCenterChunk != currentCenterChunk || 
+            if (newCenterChunk != currentCenterChunk ||
                 Time.time - lastLODUpdateTime > lodConfig.transitionDuration)
             {
                 currentCenterChunk = newCenterChunk;
@@ -103,13 +114,13 @@ namespace SURender.InfinityScale
         {
             float cameraHeight = cameraPosition.y;
             int newLODLevel = lodConfig.GetLODLevelAtDistance(cameraHeight);
-            
+
             if (newLODLevel != currentLODLevel)
             {
                 currentLODLevel = newLODLevel;
                 float newChunkSize = lodConfig.GetChunkSizeAtLOD(currentLODLevel);
                 float detailLevel = lodConfig.GetDetailLevelAtLOD(currentLODLevel);
-                
+
                 // 更新所有加载的区块的LOD级别
                 foreach (var chunk in loadedChunks.Values)
                 {
@@ -123,7 +134,7 @@ namespace SURender.InfinityScale
             HashSet<Vector2Int> newVisibleChunks = new HashSet<Vector2Int>();
             float currentChunkSize = lodConfig.GetChunkSizeAtLOD(currentLODLevel);
             int viewDistance = lodConfig.GetViewDistanceAtLOD(currentLODLevel);
-            
+
             // 获取视锥体平面
             Plane[] frustumPlanes = GeometryUtility.CalculateFrustumPlanes(Camera.main);
 
@@ -134,45 +145,47 @@ namespace SURender.InfinityScale
                 {
                     Vector2Int offset = new Vector2Int(x, z);
                     Vector2Int chunkPos = currentCenterChunk + offset;
-                    
+
                     // 创建临时Chunk用于视锥体检测
                     var tempChunk = new Chunk(chunkPos, null, currentChunkSize);
-                    
+
                     // 检查是否在视锥体内并且在视距内
-                    if (tempChunk.IsInFrustum(frustumPlanes, cameraPosition) )
+                    if (tempChunk.IsInFrustum(frustumPlanes, cameraPosition))
                     {
                         newVisibleChunks.Add(chunkPos);
                     }
                 }
             }
 
-            // 找出需要加载和卸载的区块
-            foreach (Vector2Int chunk in newVisibleChunks)
-            {
-                if (!loadedChunks.ContainsKey(chunk))
-                {
-                    loadQueue.Enqueue(chunk);
-                }
-            }
-
-            // 更新现有区块的可见性
+            // 处理所有已加载的chunks
             foreach (var kvp in loadedChunks)
             {
                 Vector2Int chunkPos = kvp.Key;
                 Chunk chunk = kvp.Value;
                 bool shouldBeVisible = newVisibleChunks.Contains(chunkPos);
-                
-                if (chunk.IsVisible != shouldBeVisible)
+
+                // 更新可见性
+                chunk.SetVisible(shouldBeVisible);
+
+                // 如果不应该可见，且不在卸载队列中，则加入卸载队列
+                if (!shouldBeVisible && !unloadQueue.Contains(chunkPos))
                 {
-                    chunk.SetVisible(shouldBeVisible);
-                    
-                    if (!shouldBeVisible && !unloadQueue.Contains(chunkPos))
-                    {
-                        unloadQueue.Enqueue(chunkPos);
-                    }
+                    DebugLog(
+                        $"Adding chunk {chunkPos} to unload queue. IsLoaded: {chunk.IsLoaded}, IsVisible: {chunk.IsVisible}");
+                    unloadQueue.Enqueue(chunkPos);
                 }
-                
             }
+
+            // 处理需要加载的新chunks
+            foreach (Vector2Int chunk in newVisibleChunks)
+            {
+                if (!loadedChunks.ContainsKey(chunk) && !loadQueue.Contains(chunk))
+                {
+                    loadQueue.Enqueue(chunk);
+                    DebugLog($"Adding chunk {chunk} to load queue");
+                }
+            }
+
 
             visibleChunks = newVisibleChunks;
         }
@@ -211,9 +224,11 @@ namespace SURender.InfinityScale
                 Instance = null;
             }
         }
+
         #endregion
 
         #region 区块管理
+
         private IEnumerator ProcessLoadQueue()
         {
             WaitForSeconds wait = new WaitForSeconds(config.loadingInterval);
@@ -250,13 +265,14 @@ namespace SURender.InfinityScale
                 {
                     DebugLog($"Chunk {position} is already loading");
                 }
+
                 return;
             }
 
             // 创建区块GameObject
             GameObject chunkObject = new GameObject($"Chunk_{position.x}_{position.y}");
             chunkObject.transform.SetParent(buildingContainer);
-            
+
             // 设置区块位置
             Vector3 worldPos = ChunkToWorldPosition(position);
             chunkObject.transform.position = worldPos;
@@ -264,7 +280,7 @@ namespace SURender.InfinityScale
             // 创建Chunk实例
             Chunk chunk = new Chunk(position, chunkObject.transform, lodConfig.GetChunkSizeAtLOD(currentLODLevel));
             loadedChunks.Add(position, chunk);
-            
+
             // 开始加载过程
             chunk.StartLoading();
             DebugLog($"Started loading chunk at {position}");
@@ -278,17 +294,17 @@ namespace SURender.InfinityScale
                 //Debug.Log("不包含该区块"+ position);
                 return;
             }
-                
+
 
             Chunk chunk = loadedChunks[position];
-            
+
             // 如果正在加载，先取消加载
             if (chunk.IsLoading)
             {
                 chunk.CancelLoading();
                 DebugLog($"Cancelled loading for chunk {position}");
             }
-            
+
             // 在卸载前，将当前区块中的建筑数据保存到BuildingSystem中
             if (chunk.buildings != null && chunk.buildings.Count > 0)
             {
@@ -301,19 +317,20 @@ namespace SURender.InfinityScale
                     }
                 }
             }
-            
+
             chunk.Unload();
             loadedChunks.Remove(position);
-            DebugLog($"Unloaded chunk at {position}, saved {(chunk.buildings != null ? chunk.buildings.Count : 0)} buildings");
+            DebugLog(
+                $"Unloaded chunk at {position}, saved {(chunk.buildings != null ? chunk.buildings.Count : 0)} buildings");
         }
 
         private IEnumerator LoadChunkContent(Chunk chunk)
         {
             bool hasLoadedAnyBuilding = false;
-            int pendingBuildings = 0;  
+            int pendingBuildings = 0;
             int buildingsCreatedThisFrame = 0;
             const int MAX_BUILDINGS_PER_FRAME = 10; // 每帧最多创建10个建筑
-            
+
             // 先检查是否有之前保存的建筑数据
             var savedBuildings = BuildingSystem.Instance.GetPendingBuildings(chunk.Position);
             if (savedBuildings != null && savedBuildings.Count > 0)
@@ -323,7 +340,7 @@ namespace SURender.InfinityScale
                 {
                     if (buildingData != null)
                     {
-                        pendingBuildings++;  
+                        pendingBuildings++;
                         BuildingSystem.Instance.CreateBuilding(
                             buildingData,
                             buildingData.position,
@@ -336,9 +353,10 @@ namespace SURender.InfinityScale
                                     hasLoadedAnyBuilding = true;
                                     DebugLog($"Restored building {building.BuildingId} to chunk {chunk.Position}");
                                 }
-                                pendingBuildings--;  
+
+                                pendingBuildings--;
                             });
-                        
+
                         // 每创建MAX_BUILDINGS_PER_FRAME个建筑后才暂停一帧
                         // buildingsCreatedThisFrame++;
                         // if (buildingsCreatedThisFrame >= MAX_BUILDINGS_PER_FRAME)
@@ -349,17 +367,17 @@ namespace SURender.InfinityScale
                     }
                 }
             }
-            
+
             // 如果没有加载任何保存的建筑，则尝试加载新的建筑
             if (!hasLoadedAnyBuilding)
             {
                 DebugLog($"No saved buildings loaded for chunk {chunk.Position}, loading new buildings");
                 yield return StartCoroutine(LoadChunkBuildings(chunk));
             }
-            
+
             yield return StartCoroutine(LoadChunkTerrain(chunk));
             chunk.SetLoaded(true);
-            
+
             // 设置可见性
             if (visibleChunks.Contains(chunk.Position))
             {
@@ -372,27 +390,28 @@ namespace SURender.InfinityScale
         {
             Vector3 chunkWorldPos = ChunkToWorldPosition(chunk.Position);
             float currentChunkSize = lodConfig.GetChunkSizeAtLOD(currentLODLevel);
-            
+
             // 从BuildingSystem获取该区块范围内的建筑数据
             var buildingsInChunk = BuildingSystem.Instance.GetBuildingsInRange(
                 chunkWorldPos,
                 currentChunkSize
             );
-            
+
             DebugLog($"Found {buildingsInChunk.Count} buildings in range for chunk {chunk.Position}");
-            
+
             foreach (var buildingData in buildingsInChunk)
             {
                 if (buildingData != null)
                 {
                     // 检查建筑预制体是否使用实例化渲染
                     bool useInstancing = BuildingSystem.Instance.CheckBuildingUseInstancing(buildingData);
-                    
+
                     // 先添加到实例化数据中
                     if (useInstancing)
                     {
                         chunk.AddBuildingData(buildingData);
-                        DebugLog($"Added instanced building data for {buildingData.buildingId} to chunk {chunk.Position}");
+                        DebugLog(
+                            $"Added instanced building data for {buildingData.buildingId} to chunk {chunk.Position}");
                     }
                     else
                     {
@@ -411,7 +430,8 @@ namespace SURender.InfinityScale
                                         // 如果变成了实例化渲染，销毁GameObject并添加到实例化数据中
                                         chunk.AddBuildingData(buildingData);
                                         GameObject.Destroy(building.gameObject);
-                                        DebugLog($"Converted building {buildingData.buildingId} to instanced rendering");
+                                        DebugLog(
+                                            $"Converted building {buildingData.buildingId} to instanced rendering");
                                     }
                                     else
                                     {
@@ -421,6 +441,7 @@ namespace SURender.InfinityScale
                                 }
                             });
                     }
+
                     yield return null;
                 }
             }
@@ -429,7 +450,7 @@ namespace SURender.InfinityScale
         private IEnumerator LoadChunkTerrain(Chunk chunk)
         {
             Vector3 chunkWorldPos = ChunkToWorldPosition(chunk.Position);
-            
+
             // 加载地形资源
             string terrainPrefabPath = $"Terrains/Chunk_{chunk.Position.x}_{chunk.Position.y}";
             ResourceSystem.Instance.LoadAssetAsync<GameObject>(terrainPrefabPath, (terrainPrefab) =>
@@ -440,16 +461,18 @@ namespace SURender.InfinityScale
                         terrainPrefab,
                         chunkWorldPos,
                         Quaternion.identity,
-                        chunk.Transform  // 设置地形的父物体
+                        chunk.Transform // 设置地形的父物体
                     );
                 }
             });
-            
+
             yield return null;
         }
+
         #endregion
 
         #region 辅助方法
+
         private Vector3 ChunkToWorldPosition(Vector2Int chunkPosition)
         {
             float currentChunkSize = lodConfig.GetChunkSizeAtLOD(currentLODLevel);
@@ -466,30 +489,32 @@ namespace SURender.InfinityScale
             Vector3 forward = mainCamera.transform.forward;
             forward.y = 0; // 将前向量投影到地平面上
             forward.Normalize();
-            
+
             // 根据相机高度和倾斜角计算前向偏移
             float pitch = Vector3.Angle(mainCamera.transform.forward, Vector3.down); // 获取相机俯仰角
-            float forwardOffset = cameraPosition.y * Mathf.Tan((90f - pitch) * Mathf.Deg2Rad);
-            
+            float forwardOffset = cameraPosition.y * Mathf.Tan((pitch) * Mathf.Deg2Rad);
+
             // 计算地面上的中心点
             Vector3 centerPoint = new Vector3(
                 cameraPosition.x + forward.x * forwardOffset,
                 0,
                 cameraPosition.z + forward.z * forwardOffset
             );
-            
+
             if (config.enableDebugLog)
             {
                 //Debug.Log($"Camera Height: {cameraPosition.y}, Pitch: {pitch}, Forward Offset: {forwardOffset}");
                 Debug.DrawLine(cameraPosition, centerPoint, Color.red, 0.1f);
                 Debug.Log(WorldToChunkPosition(centerPoint, currentChunkSize));
             }
-            
+
             return WorldToChunkPosition(centerPoint, currentChunkSize);
         }
+
         #endregion
 
         #region 公共接口
+
         public Chunk GetChunk(Vector2Int position)
         {
             return loadedChunks.TryGetValue(position, out Chunk chunk) ? chunk : null;
@@ -507,7 +532,7 @@ namespace SURender.InfinityScale
 
         public HashSet<Vector2Int> GetVisibleChunks()
         {
-            if(visibleChunks!=null)
+            if (visibleChunks != null)
                 return new HashSet<Vector2Int>(visibleChunks);
             return null;
         }
@@ -516,6 +541,7 @@ namespace SURender.InfinityScale
         {
             return loadedChunks.Keys;
         }
+
         public int GetLoadedChunkCount()
         {
             return loadedChunks.Count;
@@ -525,6 +551,7 @@ namespace SURender.InfinityScale
         {
             yield return StartCoroutine(LoadChunkContent(chunk));
         }
+
         #endregion
     }
 
@@ -534,7 +561,7 @@ namespace SURender.InfinityScale
         public bool IsLoaded { get; private set; }
         public bool IsVisible { get; private set; }
         public Transform Transform { get; private set; }
-        
+
         public List<BuildingBase> buildings { get; private set; }
         public GameObject terrainObject;
         public List<BuildingData> instancedBuildingData { get; private set; }
@@ -557,6 +584,7 @@ namespace SURender.InfinityScale
                 ChunkSystem.Instance.StopCoroutine(loadingCoroutine);
                 loadingCoroutine = null;
             }
+
             isLoading = false;
         }
 
@@ -569,10 +597,10 @@ namespace SURender.InfinityScale
 
         public void Unload()
         {
-            Debug.Log("UNLOAD "+Position  );
+            Debug.Log("UNLOAD " + Position);
             // 确保先取消任何正在进行的加载
             CancelLoading();
-            
+
             IsLoaded = false;
             IsVisible = false;
 
@@ -587,6 +615,7 @@ namespace SURender.InfinityScale
                         ObjectPoolSystem.Instance?.ReturnBuilding(building);
                     }
                 }
+
                 buildings.Clear();
             }
 
@@ -597,6 +626,7 @@ namespace SURender.InfinityScale
                 {
                     BuildingSystem.Instance?.UnregisterBuildingData(buildingData);
                 }
+
                 instancedBuildingData.Clear();
             }
 
@@ -619,18 +649,17 @@ namespace SURender.InfinityScale
 
         private void UpdateChunkBounds()
         {
-            
             // 计算chunk在世界空间中的中心点
             chunkCenter = new Vector3(
-                Position.x * chunkSize + chunkSize * 0.5f,  // X轴中心
-                0,                                          // 保持在地面
-                Position.y * chunkSize + chunkSize * 0.5f   // Z轴中心
+                Position.x * chunkSize + chunkSize * 0.5f, // X轴中心
+                0, // 保持在地面
+                Position.y * chunkSize + chunkSize * 0.5f // Z轴中心
             );
-    
+
             // 创建固定高度的包围盒
             chunkBounds = new Bounds(
-                chunkCenter,                                // 包围盒中心在地面
-                new Vector3(chunkSize, 1000f, chunkSize)    // 使用固定高度，确保能包含所有建筑
+                chunkCenter, // 包围盒中心在地面
+                new Vector3(chunkSize, 1000f, chunkSize) // 使用固定高度，确保能包含所有建筑
             );
         }
 
@@ -651,13 +680,13 @@ namespace SURender.InfinityScale
             {
                 // 标记需要重新加载内容
                 IsLoaded = false;
-                
+
                 // 保存当前建筑数据
                 SaveCurrentBuildings();
-                
+
                 // 清理当前内容
                 ClearContent();
-                
+
                 // 触发重新加载
                 ChunkSystem.Instance.ReloadChunk(this);
             }
@@ -695,6 +724,7 @@ namespace SURender.InfinityScale
                         ObjectPoolSystem.Instance?.ReturnBuilding(building);
                     }
                 }
+
                 buildings.Clear();
             }
 
@@ -705,6 +735,7 @@ namespace SURender.InfinityScale
                 {
                     BuildingSystem.Instance?.UnregisterBuildingData(buildingData);
                 }
+
                 instancedBuildingData.Clear();
             }
         }
@@ -732,19 +763,6 @@ namespace SURender.InfinityScale
         public bool IsInFrustum(Plane[] frustumPlanes, Vector3 cameraPosition)
         {
             return GeometryUtility.TestPlanesAABB(frustumPlanes, chunkBounds);
-            // 更新包围盒以适应当前相机位置
-            UpdateChunkBounds();
-            
-            // 检查包围盒是否在视锥体内
-            if (!GeometryUtility.TestPlanesAABB(frustumPlanes, chunkBounds))
-                return false;
-            
-            // 额外检查：计算相机到区块的方向向量
-            Vector3 toCameraDir = (cameraPosition - chunkCenter).normalized;
-            float angle = Vector3.Angle(Camera.main.transform.forward, toCameraDir);
-            
-            // 考虑相机视角的一半（FOV/2）再加上一些余量
-            return angle <= (Camera.main.fieldOfView * 0.6f);
         }
 
         public float GetDistanceToCamera(Vector3 cameraPosition)
@@ -776,7 +794,7 @@ namespace SURender.InfinityScale
         public void SetLoaded(bool loaded)
         {
             IsLoaded = loaded;
-            
+
             if (loaded)
             {
                 ScaleEventSystem.TriggerChunkLoaded(Position);
@@ -803,7 +821,7 @@ namespace SURender.InfinityScale
             chunkSize = size;
             isLoading = false;
             loadingCoroutine = null;
-            
+
             // 计算区块中心点和边界
             UpdateChunkBounds();
         }
